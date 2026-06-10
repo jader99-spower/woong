@@ -51,13 +51,11 @@ df_temp    = load_temp()
 
 # ── 사이드바 필터 ─────────────────────────────────────────────────────────────
 
+GEN_ID = "GEN_001"
+
 with st.sidebar:
     st.title("⚙️ 필터")
-
-    gen_options = sorted(df_daily["발전기ID"].unique().tolist())
-    sel_gens = st.multiselect("발전기 선택", gen_options, default=gen_options)
-    if not sel_gens:
-        sel_gens = gen_options
+    st.info(f"발전기: {GEN_ID}")
 
     period_opt = st.selectbox("기간 선택", ["전체", "상반기(1~6월)", "하반기(7~12월)", "분기 선택"])
     sel_quarter = None
@@ -67,8 +65,8 @@ with st.sidebar:
     st.divider()
     st.info("데이터 기준: 2023년")
 
-# 필터 적용
-df_daily_f = df_daily[df_daily["발전기ID"].isin(sel_gens)].copy()
+# 필터 적용 (GEN_001 고정)
+df_daily_f = df_daily[df_daily["발전기ID"] == GEN_ID].copy()
 if period_opt == "상반기(1~6월)":
     df_daily_f = df_daily_f[df_daily_f["월"] <= 6]
 elif period_opt == "하반기(7~12월)":
@@ -76,7 +74,7 @@ elif period_opt == "하반기(7~12월)":
 elif period_opt == "분기 선택" and sel_quarter:
     df_daily_f = df_daily_f[df_daily_f["분기"] == sel_quarter]
 
-df_eff_f = df_weekly[df_weekly["발전기ID"].isin(sel_gens)].copy()
+df_eff_f = df_weekly[df_weekly["발전기ID"] == GEN_ID].copy()
 if period_opt == "상반기(1~6월)":
     df_eff_f = df_eff_f[df_eff_f["월"] <= 6]
 elif period_opt == "하반기(7~12월)":
@@ -85,7 +83,7 @@ elif period_opt == "분기 선택" and sel_quarter:
     q_months = {"Q1": [1,2,3], "Q2": [4,5,6], "Q3": [7,8,9], "Q4": [10,11,12]}
     df_eff_f = df_eff_f[df_eff_f["월"].isin(q_months[sel_quarter])]
 
-df_hourly_f = df_hourly[df_hourly["발전기ID"].isin(sel_gens)].copy()
+df_hourly_f = df_hourly[df_hourly["발전기ID"] == GEN_ID].copy()
 
 # ── 탭 ───────────────────────────────────────────────────────────────────────
 
@@ -117,21 +115,19 @@ with tab1:
         col_a, col_b = st.columns(2)
 
         with col_a:
-            st.markdown("**월별 발전량 (발전기별 누적)**")
-            monthly_pivot = df_daily_f.pivot_table(
-                index="월", columns="발전기ID", values="발전량(MWh)", aggfunc="sum"
-            )
-            st.bar_chart(monthly_pivot, use_container_width=True)
+            st.markdown("**월별 발전량**")
+            monthly_sum = df_daily_f.groupby("월")["발전량(MWh)"].sum().rename("발전량(MWh)")
+            st.bar_chart(monthly_sum, use_container_width=True)
 
         with col_b:
-            st.markdown("**일별 평균 가동시간 추이**")
-            daily_op = df_daily_f.groupby("날짜")["가동시간(h)"].mean()
+            st.markdown("**일별 가동시간 추이**")
+            daily_op = df_daily_f.set_index("날짜")["가동시간(h)"]
             st.line_chart(daily_op, use_container_width=True)
 
         st.divider()
         st.markdown("**발전기 기본 정보**")
         st.dataframe(
-            df_basic[["발전기ID", "설치위치", "제조사", "모델명", "정격용량(MW)", "설치년도", "연간운영시간(h)"]],
+            df_basic[df_basic["발전기ID"] == GEN_ID][["발전기ID", "설치위치", "제조사", "모델명", "정격용량(MW)", "설치년도", "연간운영시간(h)"]],
             use_container_width=True,
             hide_index=True,
         )
@@ -145,39 +141,33 @@ with tab2:
     if df_daily_f.empty:
         st.warning("선택한 조건에 해당하는 데이터가 없습니다.")
     else:
-        st.markdown("**일별 발전량 추이 (발전기별)**")
-        daily_pivot = df_daily_f.pivot_table(
-            index="날짜", columns="발전기ID", values="발전량(MWh)", aggfunc="sum"
-        )
-        st.line_chart(daily_pivot, use_container_width=True)
+        st.markdown("**일별 발전량 추이**")
+        daily_series = df_daily_f.set_index("날짜")["발전량(MWh)"]
+        st.line_chart(daily_series, use_container_width=True)
 
         st.divider()
         col_a, col_b = st.columns(2)
 
         with col_a:
-            st.markdown("**월별 평균 발전량 비교**")
-            monthly_avg = df_daily_f.pivot_table(
-                index="월", columns="발전기ID", values="발전량(MWh)", aggfunc="mean"
-            )
+            st.markdown("**월별 평균 발전량**")
+            monthly_avg = df_daily_f.groupby("월")["발전량(MWh)"].mean().rename("발전량(MWh)")
             st.bar_chart(monthly_avg, use_container_width=True)
 
         with col_b:
             st.markdown("**분기별 발전량 누적**")
-            q_order = {"Q1": 1, "Q2": 2, "Q3": 3, "Q4": 4}
-            qtr_pivot = df_daily_f.pivot_table(
-                index="분기", columns="발전기ID", values="발전량(MWh)", aggfunc="sum"
-            )
-            qtr_pivot = qtr_pivot.reindex([q for q in ["Q1","Q2","Q3","Q4"] if q in qtr_pivot.index])
-            st.area_chart(qtr_pivot, use_container_width=True)
+            qtr_sum = df_daily_f.groupby("분기")["발전량(MWh)"].sum().rename("발전량(MWh)")
+            qtr_sum = qtr_sum.reindex([q for q in ["Q1","Q2","Q3","Q4"] if q in qtr_sum.index])
+            st.area_chart(qtr_sum, use_container_width=True)
 
         st.divider()
-        st.markdown("**발전기별 출력 요약**")
-        summary = df_daily_f.groupby("발전기ID").agg(
-            총발전량=("발전량(MWh)", "sum"),
-            최대일간발전량=("발전량(MWh)", "max"),
-            평균발전량=("발전량(MWh)", "mean"),
-            평균가동시간=("가동시간(h)", "mean"),
-        ).round(2).reset_index()
+        st.markdown("**출력 요약**")
+        summary = pd.DataFrame([{
+            "발전기ID": GEN_ID,
+            "총발전량(MWh)": round(df_daily_f["발전량(MWh)"].sum(), 2),
+            "최대일간발전량(MWh)": round(df_daily_f["발전량(MWh)"].max(), 2),
+            "평균발전량(MWh)": round(df_daily_f["발전량(MWh)"].mean(), 2),
+            "평균가동시간(h)": round(df_daily_f["가동시간(h)"].mean(), 2),
+        }])
         st.dataframe(summary, use_container_width=True, hide_index=True)
 
 # ════════════════════════════════════════════════════════════════════════════
@@ -202,21 +192,18 @@ with tab3:
         st.divider()
 
         st.markdown("**주간 평균효율 추이 (목표: 52%)**")
-        eff_pivot = df_eff_f.pivot_table(
-            index="주차", columns="발전기ID", values="평균효율(%)", aggfunc="mean"
-        )
-        eff_pivot["목표(52%)"] = 52.0
-        st.line_chart(eff_pivot, use_container_width=True)
+        eff_weekly = df_eff_f.set_index("주차")[["평균효율(%)"]].copy()
+        eff_weekly["목표(52%)"] = 52.0
+        st.line_chart(eff_weekly, use_container_width=True)
 
         st.divider()
         col_a, col_b = st.columns(2)
 
         with col_a:
             st.markdown("**월별 목표효율 달성율 (%)**")
-            monthly_achieve = df_daily_f.pivot_table(
-                index="월", columns="발전기ID", values="평균효율(%)", aggfunc="mean"
-            )
-            monthly_achieve_rate = (monthly_achieve / 52.0 * 100).round(2)
+            monthly_achieve_rate = (
+                df_daily_f.groupby("월")["평균효율(%)"].mean() / 52.0 * 100
+            ).round(2).rename("달성율(%)")
             st.bar_chart(monthly_achieve_rate, use_container_width=True)
 
         with col_b:
@@ -246,7 +233,6 @@ with tab4:
                 df_hourly_f,
                 x="외기온도(°C)",
                 y="전력출력(MW)",
-                color="발전기ID",
                 use_container_width=True,
             )
 
@@ -257,7 +243,6 @@ with tab4:
                 df_hourly_f,
                 x="외기온도(°C)",
                 y="효율(%)",
-                color="발전기ID",
                 use_container_width=True,
             )
 
